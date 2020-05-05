@@ -113,8 +113,11 @@ var rawPCfg = []byte(`{
 	"LocalHttpProxyPort": $http_proxy_port,
 	"LocalSocksProxyPort": $socks_proxy_port,
 	"MigrateDataStoreDirectory": "$store_dir",
+	"ObfuscatedServerListDownloadDirectory": "$store_dir/osl",
 	"MigrateObfuscatedServerListDownloadDirectory": "$store_dir/osl",
+	"RemoteServerListDownloadFilename": "$store_dir/remote_server_list",
 	"MigrateRemoteServerListDownloadFilename":"$store_dir/remote_server_list",
+	"UpgradeDownloadFilename": "$store_dir/psiphon3.exe.upgrade",
 	"MigrateUpgradeDownloadFilename":"$store_dir/psiphon3.exe.upgrade",
 	"NetworkID":"949F2E962ED7A9165B81E977A3B4758B",
 	"ObfuscatedServerListRootURLs":[{"OnlyAfterAttempts":0,"SkipVerify":false,"URL":"aHR0cHM6Ly9zMy5hbWF6b25hd3MuY29tL3BzaXBob24vd2ViL21qcjQtcDIzci1wdXdsL29zbA=="},{"OnlyAfterAttempts":2,"SkipVerify":true,"URL":"aHR0cHM6Ly93d3cueHlkaWFtb25kZGJleHBlcnQuY29tL3dlYi9tanI0LXAyM3ItcHV3bC9vc2w="},{"OnlyAfterAttempts":2,"SkipVerify":true,"URL":"aHR0cHM6Ly93d3cuZ3BhbGx0aGluZ3NudW1iZXJ3ZWF0aGVyLmNvbS93ZWIvbWpyNC1wMjNyLXB1d2wvb3Ns"},{"OnlyAfterAttempts":2,"SkipVerify":true,"URL":"aHR0cHM6Ly93d3cud2hlZWxyc3NrbWluc2lkZS5jb20vd2ViL21qcjQtcDIzci1wdXdsL29zbA=="}],
@@ -139,7 +142,9 @@ var rawPCfg = []byte(`{
 
 var (
 	instanceCount int = 2
+	haproxyConfigPath string = "/etc/haproxy/haproxy.cfg"
 	holder = make(chan int)
+	notifierExit = make(chan int)
 )
 
 
@@ -250,7 +255,14 @@ func main() {
 			instanceCount = rpx
 		}
 	}
-	flag.IntVar(&instanceCount, "count", instanceCount, "psiphon client count")
+	flag.IntVar(&instanceCount, "count", instanceCount, "Psiphon client count")
+
+
+	if tmpx, exist := os.LookupEnv("HAPROXY_CONFIG"); exist {
+		haproxyConfigPath = tmpx
+	}
+	flag.StringVar(&haproxyConfigPath, "ha-config", haproxyConfigPath, "HA Proxy configuration path destination")
+
 	flag.Parse()
 
 	pcid, err := jp.GetString(rawPCfg, "PropagationChannelId")
@@ -277,20 +289,28 @@ func main() {
 		{"Init LocalSocksProxyPort:", fmt.Sprintf("%d", initialLocalSocksProxyPort)},
 	}))
 
+	doExit := func() {
+		for insId := 0; insId < instanceCount; insId++ {
+			os.Remove(fmt.Sprintf("./tmp_%d.json", insId))
+			os.Remove(fmt.Sprintf("./desktop_%d",insId))
+			RemoveContents(fmt.Sprintf("desktop_%d",insId))
+		//	os.Exit(2)
+		}
+	}
 	go func() {
 		for sig := range sigNotification {
-			fmt.Println("err", "interrupted", sig, err)
-			for insId := 0; insId < instanceCount; insId++ {
-				os.Remove(fmt.Sprintf("tmp_%d.json", insId))
-				os.Remove(fmt.Sprintf("./desktop_%d",insId))
-				RemoveContents(fmt.Sprintf("desktop_%d",insId))
-				os.Exit(2)
-			}
+			_ = sig
+			doExit()
 			holder <- 1
 		}
 	}()
+	go func() {
+		<-notifierExit
+		doExit()
+		holder <- 1
+	}()
 
-	fcfg, err := os.Create("haproxy.cfg")
+	fcfg, err := os.Create(haproxyConfigPath)
 	if err != nil {
 		fmt.Printf("error open haproxy.cfg: %s", err)
 		os.Exit(2)
@@ -301,12 +321,12 @@ func main() {
 	hacfg.SetServiceBindAddr("*:4455")
 	for insId := 0; insId < instanceCount; insId++ {
 		fmt.Printf("Creating %d... ", insId)
-		f, err := os.OpenFile(fmt.Sprintf("tmp_%d.json", insId), os.O_CREATE|os.O_WRONLY, 0644)
+		f, err := os.Create(fmt.Sprintf("tmp_%d.json", insId))
 		if err != nil {
 			fmt.Printf("[%d] error open file: %s\n", insId, err)
 			continue
 		}
-		dirPath := fmt.Sprintf("desktop_%d",insId)
+		dirPath := fmt.Sprintf("./desktop_%d",insId)
 		os.MkdirAll(dirPath, os.ModeDir)
 		fmt.Printf("copy dir error: %s\n", CopyDir("desktop", dirPath))
 
@@ -340,6 +360,15 @@ func main() {
 	}
 	fcfg.Write([]byte(hacfg.Generate()))
 	fcfg.Close()
+	hasvc := exec.Command("service", "haproxy", "start")
+	hasvc.Stderr = os.Stderr
+	go func() {
+		if err := hasvc.Run(); err != nil {
+			fmt.Printf("Failed to run HA Proxy\n")
+			fmt.Printf(" - err: %s\n", err)
+			notifierExit <- 1
+		}
+	}()
 	<-holder
 }
 
