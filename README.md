@@ -1,10 +1,14 @@
 <pre>
-damn simple, unclean example of psiphon load balance better performance
+damn simple, unclean example of psiphon load balance better performance also with prometheus metrics
 ---
+
+Docker Image used haproxy:latest that built with prometheus metrics
+https://github.com/docker-library/haproxy/blob/eeaaa570ccaeec6fa7e545b9314d6f246b6b283c/2.1/Dockerfile#L39
+
 
 Maintainer < nekonify@gmail.com >
 
-
+Direct usage
 $ go build -i -v psi-scale.go
 $ cp -a haproxy.cfg /etc/haproxy/
 $ killall -9 haproxy

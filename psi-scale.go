@@ -54,6 +54,7 @@ defaults
 
 listen stats
   bind 0.0.0.0:4444
+  option http-use-htx
   mode            http
   log             global
   maxconn 10
@@ -63,7 +64,8 @@ listen stats
   timeout queue   100s
   stats enable
   stats hide-version
-  stats refresh 30s
+  http-request use-service prometheus-exporter if { path /metrics }
+  stats refresh 10s
   stats show-node
   stats uri /haproxy?stats
 
@@ -361,7 +363,7 @@ func main() {
 	}
 	fcfg.Write([]byte(hacfg.Generate()))
 	fcfg.Close()
-	hasvc := exec.Command("service", "haproxy", "start")
+	hasvc := exec.Command("haproxy", "-D", "-f", haproxyConfigPath)
 	hasvc.Stderr = os.Stderr
 	go func() {
 		if err := hasvc.Run(); err != nil {
