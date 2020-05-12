@@ -291,6 +291,7 @@ func main() {
 
 	doExit := func() {
 		for insId := 0; insId < instanceCount; insId++ {
+			//_ = insId
 			os.Remove(fmt.Sprintf("./tmp_%d.json", insId))
 			os.Remove(fmt.Sprintf("./desktop_%d",insId))
 			RemoveContents(fmt.Sprintf("desktop_%d",insId))
@@ -366,7 +367,7 @@ func main() {
 		if err := hasvc.Run(); err != nil {
 			fmt.Printf("Failed to run HA Proxy\n")
 			fmt.Printf(" - err: %s\n", err)
-			notifierExit <- 1
+			//notifierExit <- 1
 		}
 	}()
 	<-holder
