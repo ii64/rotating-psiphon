@@ -15,6 +15,9 @@ COPY --from=builder /go/bin/start_app /app/start_app
 COPY ./desktop/ /app/desktop/
 COPY ./psiphon-tunnel-core /app/psiphon-tunnel-core
 COPY ./psiphon-tunnel-core.exe /app/psiphon-tunnel-core.exe
+
+ENV PATH="/app:${PATH}"
+
 RUN chmod +x /app/start_app
 RUN chmod +x /app/psiphon-tunnel-core
 RUN apt-get update && \
